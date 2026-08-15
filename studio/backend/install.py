@@ -162,6 +162,13 @@ def install_mod(repo_root: Path, game_mods: Path, osmdata: Path | None, options:
             osmdata_note = "copied " + ", ".join(copied_names)
         else:
             note(osmdata_note, 90)
+            sidecar = src_lua.parent / "osmdata_buildings.lua"
+            dest_side = scripts / "osmdata_buildings.lua"
+            if sidecar.is_file() and sidecar.resolve() != dest_side.resolve():
+                note("Copying osmdata_buildings.lua sidecar…", 92)
+                atomic.copy_file(sidecar, dest_side, progress=progress, start_pct=92, end_pct=94)
+                copied_names.append("osmdata_buildings.lua")
+                osmdata_note = osmdata_note + "; copied buildings sidecar"
 
     note("Writing user_options.lua…", 95)
     write_options(scripts / "user_options.lua", options)

@@ -101,3 +101,56 @@ def read(filename, bounds=None):
             relations[entity.id] = entity
     print(f"Loaded {len(nodes)} Nodes / {len(ways)} Ways / {len(relations)} Relations")
     return nodes, ways, relations
+
+
+def read_building_ways(filename, bounds=None):
+    """Two-pass parse: closed building ways, then only the nodes they reference."""
+    print(f"Read building footprints from '{filename}' ...")
+    file_bounds = None
+    try:
+        file_bounds = read_bounds(filename)
+        if file_bounds:
+            print("Bounds of osm file:", file_bounds)
+    except AssertionError as exc:
+        print("OSM header bounds:", exc)
+    use = bounds or file_bounds
+    if use is None:
+        raise AssertionError(
+            "No map bounds: pass the Studio yellow box, or include <bounds> in the OSM file"
+        )
+    if bounds:
+        print("Using Studio/map bounds for out-of-bounds flags:", bounds)
+    assert filename.endswith(".osm") or filename.endswith(".pbf"), "File type needs to be .osm or .pbf"
+
+    ways = {}
+    needed = set()
+    for entity in parse_file(filename):
+        if not isinstance(entity, Way):
+            continue
+        b = entity.tags.get("building")
+        if not b or b == "no":
+            continue
+        wnodes = entity.nodes
+        if len(wnodes) < 4 or wnodes[0] != wnodes[-1]:
+            continue
+        ways[entity.id] = entity
+        needed.update(wnodes)
+        if len(ways) % 25000 == 0:
+            print(f"Building ways so far: {len(ways)}")
+    print(f"Building ways: {len(ways)} / nodes needed: {len(needed)}")
+
+    nodes = {}
+    scanned = 0
+    for entity in parse_file(filename):
+        if not isinstance(entity, Node):
+            continue
+        scanned += 1
+        if scanned % 500000 == 0:
+            print(f"Scanned {scanned} nodes, kept {len(nodes)}")
+        if entity.id not in needed:
+            continue
+        if not isinbounds(use, entity.lat, entity.lon):
+            entity.tags["outofbounds"] = True
+        nodes[entity.id] = entity
+    print(f"Loaded {len(nodes)} building nodes / {len(ways)} ways")
+    return nodes, ways

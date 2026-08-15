@@ -150,6 +150,50 @@ def footprint_metrics(pts):
     }
 
 
+def extract_buildings(nodes, ways, map_bounds, bounds_length):
+    """Footprint records only. Same Coord2metric as a full convert."""
+    transf = Coord2metric(map_bounds, bounds_length).latlon2metricoffset
+    buildings = []
+    for way in ways.values():
+        tags = way.tags
+        if not tags.get("building"):
+            continue
+        wnodes = way.nodes
+        if not wnodes or wnodes[0] != wnodes[-1]:
+            continue
+        purpose = classify_building(tags)
+        if not purpose:
+            continue
+        pts = []
+        skip = False
+        for nid in wnodes[:-1]:
+            node = nodes.get(nid)
+            if not node or node.tags.get("outofbounds"):
+                skip = True
+                break
+            pts.append(list(transf(node.lat, node.lon)))
+        if skip:
+            continue
+        metrics = footprint_metrics(pts)
+        if not metrics:
+            continue
+        rec = {
+            "purpose": purpose,
+            "pos": metrics["pos"],
+            "width": metrics["width"],
+            "depth": metrics["depth"],
+            "heading": metrics["heading"],
+        }
+        levels = parse_building_levels(tags)
+        if levels:
+            rec["levels"] = levels
+        if tags.get("name"):
+            rec["name"] = tags["name"]
+        buildings.append(rec)
+    print("Buildings kept:", len(buildings))
+    return buildings
+
+
 def tointornil(str, fallback=None):
     if str and str.isdigit():
         return int(str)

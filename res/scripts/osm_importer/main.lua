@@ -1,5 +1,15 @@
 
 osmdata = require"osm_importer.osmdata"
+do
+	local existing = osmdata.buildings
+	local n = type(existing) == "table" and #existing or 0
+	if n == 0 then
+		local ok, extra = pcall(require, "osm_importer.osmdata_buildings")
+		if ok and type(extra) == "table" and #extra > 0 then
+			rawset(osmdata, "buildings", extra)
+		end
+	end
+end
 bulldoze =  require "osm_importer.bulldoze"
 
 osm_importer = {

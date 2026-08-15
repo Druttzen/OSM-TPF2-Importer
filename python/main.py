@@ -133,6 +133,50 @@ def convert_osm(infile, outfile, bounds_length, bounds, log_file=None):
             log_handle.close()
 
 
+def convert_buildings_only(infile, outfile, bounds_length, bounds, log_file=None):
+    """Write osmdata_buildings.lua without replacing towns/nodes/edges."""
+    old_out, old_err = sys.stdout, sys.stderr
+    log_handle = None
+    if log_file:
+        os.makedirs(os.path.dirname(os.path.abspath(log_file)) or ".", exist_ok=True)
+        log_handle = open(log_file, "w", encoding="utf-8", buffering=1)
+        sys.stdout = log_handle
+        sys.stderr = log_handle
+    try:
+        print("#" * 16 + "  OSM-TPF2 BUILDINGS  " + "#" * 16)
+        print("Startup:", datetime.now())
+        start = datetime.now()
+        if not bounds:
+            bounds = read_osm.read_bounds(infile)
+            print("Using <bounds> from OSM file")
+        print("Map Bounds defined:", bounds)
+        print("Map size (m):", bounds_length)
+
+        print("=" * 16 + " Parse building ways " + "=" * 16)
+        nodes, ways = read_osm.read_building_ways(infile, bounds)
+
+        print("=" * 16 + " Convert footprints " + "=" * 16)
+        buildings = convert_data.extract_buildings(nodes, ways, bounds, bounds_length)
+
+        print("=" * 16 + " Write Lua file " + "=" * 16)
+        out = os.path.abspath(outfile)
+        os.makedirs(os.path.dirname(out) or ".", exist_ok=True)
+        _atomic_luadata_write(out, buildings)
+        print(f"Successfully wrote buildings sidecar: '{out}'")
+        print(f"Buildings: {len(buildings)}")
+        print(f"Execution time: {datetime.now() - start} s")
+        return {
+            "ok": True,
+            "buildings": len(buildings),
+            "out": out,
+        }
+    finally:
+        sys.stdout = old_out
+        sys.stderr = old_err
+        if log_handle:
+            log_handle.close()
+
+
 def _cli():
     sys.stdout = open("log.txt", "w", encoding="utf-8")
     sys.stderr = sys.stdout
