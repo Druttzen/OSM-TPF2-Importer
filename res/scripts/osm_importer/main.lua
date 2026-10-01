@@ -127,9 +127,10 @@ local function Tips()
 	-- Reload Lua Files:
 	m.reload()
 	
-	-- Stop edges / buildings:
+	-- Stop towns / edges / buildings:
 	m.simpleproposalseq.stop=true
 	m.buildings.stop=true
+	m.towns.stop=true
 	
 end
 -------------------------------------------

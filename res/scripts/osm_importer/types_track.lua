@@ -34,7 +34,7 @@ function tt.getType(track)
 	end
 
 	if track.electrified == "4th_rail" then
-		return
+		return pickTrack("standard.lua")
 	end
 
 	if track.type == "construction" then

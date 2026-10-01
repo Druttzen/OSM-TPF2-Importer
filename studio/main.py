@@ -27,8 +27,9 @@ from backend.api import StudioApi
 
 
 def main() -> None:
-    api = StudioApi(ROOT)
-    ui = (HERE / "ui" / "index.html").resolve().as_uri()
+    api = StudioApi(ROOT, ui_root=HERE / "ui")
+
+    ui = (HERE / "ui" / "start.html").resolve().as_uri()
     window = webview.create_window(
         "OSM-TPF2 Studio",
         ui,

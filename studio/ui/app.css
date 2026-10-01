@@ -27,12 +27,43 @@ body {
 .mast {
   display: grid;
   grid-template-columns: 1fr auto;
-  grid-template-rows: auto auto;
+  grid-template-rows: auto auto auto;
   gap: 4px 24px;
   align-items: end;
   padding: 14px 20px 12px;
   border-bottom: 1px solid var(--brass-dim);
   background: linear-gradient(180deg, #1f1b14, #14110c);
+}
+.pipe {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 14px;
+  list-style: none;
+  margin: 8px 0 0;
+  padding: 0;
+  font: 600 11px/1 "IBM Plex Sans", sans-serif;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.pipe li { display: flex; align-items: center; gap: 6px; cursor: pointer; }
+.pipe li:hover { color: var(--brass); }
+.pipe .dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #4a4338;
+}
+.pipe .is-on { color: var(--olive); }
+.pipe .is-on .dot { background: var(--olive); }
+.preview {
+  display: block;
+  width: 100%;
+  max-height: 160px;
+  object-fit: cover;
+  margin: 8px 0;
+  border: 1px solid var(--line);
 }
 .mast-mark { grid-column: 1; }
 .mast-mark h1 {
@@ -42,6 +73,29 @@ body {
   margin: 0;
   letter-spacing: 0.04em;
 }
+.mast-title-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.mast-actions { display: flex; align-items: center; gap: 8px; }
+.game-switch {
+  flex: 0 0 auto;
+  padding: 7px 10px;
+  border: 1px solid var(--brass-dim);
+  background: transparent;
+  color: var(--brass);
+  font: 600 11px "IBM Plex Sans", sans-serif;
+  cursor: pointer;
+}
+.game-switch:hover { border-color: var(--brass); }
+.game-notice {
+  grid-column: 1 / -1;
+  margin: 4px 0 0;
+  padding: 7px 10px;
+  border-left: 2px solid var(--brass-dim);
+  background: rgba(14, 12, 9, .55);
+  color: var(--muted);
+  font-size: 11px;
+}
+body[data-game="tf3"] [data-tpf2-only] { display: none !important; }
+body[data-game="tf3"] #hmCopyLabel { display: none !important; }
 .mast-mark em { font-style: italic; color: var(--brass); font-weight: 700; }
 .rule {
   display: block;
@@ -57,12 +111,49 @@ body {
   font-size: 12px;
 }
 .search {
+  grid-column: 2;
   grid-row: 1 / span 2;
   display: flex;
   gap: 8px;
   align-items: center;
+  position: relative;
 }
 .search input { width: 280px; }
+.hits {
+  position: absolute;
+  top: calc(100% + 4px);
+  right: 0;
+  left: 0;
+  z-index: 800;
+  background: #1a1712;
+  border: 1px solid var(--brass-dim);
+  max-height: 280px;
+  overflow: auto;
+}
+.hit {
+  display: block;
+  width: 100%;
+  text-align: left;
+  background: transparent;
+  color: var(--ink);
+  border: 0;
+  border-bottom: 1px solid var(--line);
+  padding: 8px 10px;
+  font: 12px "IBM Plex Sans", sans-serif;
+  cursor: pointer;
+}
+.hit:hover { background: #2a241b; color: var(--brass); }
+.hit small { display: block; color: var(--muted); font-size: 11px; margin-top: 2px; }
+.warn {
+  color: #e0b070;
+  font-size: 12px;
+  margin: 0 0 10px;
+}
+button.cancel {
+  padding: 4px 8px;
+  font-size: 11px;
+  margin-left: 8px;
+}
 
 .stage {
   flex: 1;
@@ -279,6 +370,7 @@ legend { color: var(--muted); padding: 0 6px; }
 .live[data-state="run"] { box-shadow: inset 0 2px 0 var(--brass); }
 .live[data-state="ok"] { box-shadow: inset 0 2px 0 var(--olive); }
 .live[data-state="err"] { box-shadow: inset 0 2px 0 var(--danger); }
+.live[data-state="stop"] { box-shadow: inset 0 2px 0 #8a8070; }
 .live-top {
   display: flex;
   align-items: center;
@@ -309,6 +401,7 @@ legend { color: var(--muted); padding: 0 6px; }
 }
 .live[data-state="ok"] .pulse { background: var(--olive); }
 .live[data-state="err"] .pulse { background: var(--danger); }
+.live[data-state="stop"] .pulse { background: #8a8070; }
 @keyframes live-pulse {
   0%, 100% { opacity: 1; }
   50% { opacity: 0.35; }
@@ -355,7 +448,8 @@ legend { color: var(--muted); padding: 0 6px; }
 }
 .live-detail:empty { display: none; }
 
-body.is-busy .dock button:not(.step) { pointer-events: none; opacity: 0.55; }
+body.is-busy .dock button:not(.step):not(.cancel) { pointer-events: none; opacity: 0.55; }
+body.is-busy .dock button.cancel { pointer-events: auto; opacity: 1; }
 body.is-busy .search button,
 body.is-busy .search input { pointer-events: none; opacity: 0.65; }
 

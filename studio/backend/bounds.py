@@ -25,6 +25,7 @@ _LEGACY_CENTERS = (
 )
 
 # Workshop pack matching only — not political borders.
+# Simple rectangles overlap (Øresund, etc.); keep Sweden only and reverse-geocode elsewhere.
 REGION_BOXES = {
     "SE": {"minlat": 55.0, "maxlat": 69.4, "minlon": 10.5, "maxlon": 24.2},
 }
@@ -115,3 +116,8 @@ def osm_export_url(box: dict, zoom: int = 14) -> str:
 
 def bbox_area_deg2(box: dict) -> float:
     return abs(box["maxlat"] - box["minlat"]) * abs(box["maxlon"] - box["minlon"])
+
+
+def nearest_size_key(meters: float) -> str:
+    """Closest official TPF2 map edge length to a measured ground span."""
+    return min(MAP_SIZES.items(), key=lambda kv: abs(kv[1]["meters"] - float(meters)))[0]

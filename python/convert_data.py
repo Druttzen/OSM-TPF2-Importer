@@ -330,6 +330,7 @@ def convert(nodes, ways, relations, map_bounds, bounds_length):
     ]
 
     poly_areas_added = set()  # some forests are mapped twice, as way and relation
+    skipped_missing_nodes = 0
     groundtags_landuse = {"residential", "commercial", "industrial", "retail", "construction", "education",
                           "brownfield", "quarry", "railway", "meadow", "orchard", "allotments",
                           "farmland", "farmyard", "vineyard", "animal_keeping", "flowerbed"}
@@ -385,9 +386,8 @@ def convert(nodes, ways, relations, map_bounds, bounds_length):
 
             for i in range(len(wnodes) - 1):
                 if wnodes[i] not in data["nodes"] or wnodes[i + 1] not in data["nodes"]:
-                    # print(f"Out of bounds: Skip Edge({wnodes[i]},{wnodes[i + 1]})")
-                    # continue  # skip edge
-                    raise Exception(f"Way{id} - Edge({wnodes[i]},{wnodes[i + 1]}) Node not in data")
+                    skipped_missing_nodes += 1
+                    continue
                 data["edges"][f"{id}_{i}"] = {
                     "node0": wnodes[i],
                     "node1": wnodes[i + 1],
@@ -432,15 +432,21 @@ def convert(nodes, ways, relations, map_bounds, bounds_length):
                     "tunnel": False if tags.get("tunnel") == "no" else tags.get("tunnel"),
                 }
 
-            data["nodes"][wnodes[0]]["way_start_to"].append(wnodes[1])
-            data["nodes"][wnodes[-1]]["way_end_from"].append(wnodes[-2])
+            n0 = data["nodes"].get(wnodes[0])
+            n1 = data["nodes"].get(wnodes[-1])
+            if n0 and len(wnodes) > 1:
+                n0["way_start_to"].append(wnodes[1])
+            if n1 and len(wnodes) > 1:
+                n1["way_end_from"].append(wnodes[-2])
             for i in range(1, len(wnodes) - 1):
-                data["nodes"][wnodes[i]]["way_within"].append([wnodes[i - 1], wnodes[i + 1]])
+                mid = data["nodes"].get(wnodes[i])
+                if mid:
+                    mid["way_within"].append([wnodes[i - 1], wnodes[i + 1]])
 
-            if data["nodes"][wnodes[0]]["outofbounds"]:
-                data["nodes"][wnodes[0]]["endpoint"] = True
-            if data["nodes"][wnodes[-1]]["outofbounds"]:
-                data["nodes"][wnodes[-1]]["endpoint"] = True
+            if n0 and n0.get("outofbounds"):
+                n0["endpoint"] = True
+            if n1 and n1.get("outofbounds"):
+                n1["endpoint"] = True
 
         # Area (closed way)
         if wnodes[0] == wnodes[-1]:
@@ -539,6 +545,8 @@ def convert(nodes, ways, relations, map_bounds, bounds_length):
             add_multipolygon(relation, "grounds", surface=tags.get("surface"), leisure=tags.get("leisure"))
 
     print("Buildings kept:", len(data["buildings"]))
+    if skipped_missing_nodes:
+        print("Skipped edges with missing nodes:", skipped_missing_nodes)
     return data
 
 

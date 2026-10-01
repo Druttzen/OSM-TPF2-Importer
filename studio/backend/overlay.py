@@ -6,6 +6,8 @@ import urllib.request
 from io import BytesIO
 from pathlib import Path
 
+from .jobs import JobCancelled, raise_if_cancelled
+
 from PIL import Image
 
 UA = "OSM-TPF2-Studio/1.0 (Esri World Imagery overlay, personal use)"
@@ -67,7 +69,7 @@ def _save_png(img: Image.Image, path: Path) -> None:
     tmp.replace(path)
 
 
-def download_overlay(box: dict, dest_dir: Path, zoom: int | None = None, progress=None) -> dict:
+def download_overlay(box: dict, dest_dir: Path, zoom: int | None = None, progress=None, cancel=None) -> dict:
     dest_dir.mkdir(parents=True, exist_ok=True)
 
     def note(msg: str, pct=None) -> None:
@@ -84,18 +86,24 @@ def download_overlay(box: dict, dest_dir: Path, zoom: int | None = None, progres
 
     mosaic = Image.new("RGB", (nx * 256, ny * 256))
     done = 0
-    for i, x in enumerate(range(x0, x1 + 1)):
-        for j, y in enumerate(range(y0, y1 + 1)):
-            url = TILE.format(z=zoom, x=x, y=y)
-            req = urllib.request.Request(url, headers={"User-Agent": UA})
-            try:
-                with urllib.request.urlopen(req, timeout=30) as resp:
-                    tile = Image.open(BytesIO(resp.read())).convert("RGB")
-            except Exception as exc:
-                return {"ok": False, "error": f"Tile {x},{y}: {exc}"}
-            mosaic.paste(tile, (i * 256, j * 256))
-            done += 1
-            note(f"Tile {done}/{total} (z{zoom})", 4 + 82 * done / max(1, total))
+    try:
+        for i, x in enumerate(range(x0, x1 + 1)):
+            for j, y in enumerate(range(y0, y1 + 1)):
+                raise_if_cancelled(cancel)
+                url = TILE.format(z=zoom, x=x, y=y)
+                req = urllib.request.Request(url, headers={"User-Agent": UA})
+                try:
+                    with urllib.request.urlopen(req, timeout=30) as resp:
+                        tile = Image.open(BytesIO(resp.read())).convert("RGB")
+                except JobCancelled:
+                    raise
+                except Exception as exc:
+                    return {"ok": False, "error": f"Tile {x},{y}: {exc}"}
+                mosaic.paste(tile, (i * 256, j * 256))
+                done += 1
+                note(f"Tile {done}/{total} (z{zoom})", 4 + 82 * done / max(1, total))
+    except JobCancelled:
+        return {"ok": False, "cancelled": True, "error": "Cancelled"}
 
     note("Cropping overlay to yellow box…", 88)
     mosaic = _crop_to_box(mosaic, box, zoom, x0, y0)
@@ -106,6 +114,12 @@ def download_overlay(box: dict, dest_dir: Path, zoom: int | None = None, progres
     flipped = mosaic.transpose(Image.FLIP_TOP_BOTTOM)
     out_flip = dest_dir / f"overlay_z{zoom}_tpf_flip.png"
     _save_png(flipped, out_flip)
+    preview = mosaic.copy()
+    preview.thumbnail((720, 720))
+    prev_path = dest_dir / "preview_overlay.jpg"
+    tmp_prev = prev_path.with_name(prev_path.name + ".part")
+    preview.save(tmp_prev, "JPEG", quality=72)
+    tmp_prev.replace(prev_path)
 
     tiles_dir = dest_dir / "tiles_4096"
     tiles_dir.mkdir(exist_ok=True)
@@ -148,6 +162,7 @@ def download_overlay(box: dict, dest_dir: Path, zoom: int | None = None, progres
         "ok": True,
         "png": str(out),
         "png_flip": str(out_flip),
+        "preview": str(prev_path),
         "width": tw,
         "height": th,
         "zoom": zoom,

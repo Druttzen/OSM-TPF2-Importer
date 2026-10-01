@@ -178,26 +178,45 @@ def convert_buildings_only(infile, outfile, bounds_length, bounds, log_file=None
 
 
 def _cli():
-    sys.stdout = open("log.txt", "w", encoding="utf-8")
-    sys.stderr = sys.stdout
+    args = sys.argv[1:]
+    buildings = False
+    log_file = None
+    positional = []
+    i = 0
+    while i < len(args):
+        if args[i] == "--buildings":
+            buildings = True
+        elif args[i] == "--log" and i + 1 < len(args):
+            i += 1
+            log_file = args[i]
+        else:
+            positional.append(args[i])
+        i += 1
 
-    infile = "map.osm"
-    if len(sys.argv) > 1:
-        infile = sys.argv[1]
-    outfile = "osmdata.lua"
-    if len(sys.argv) > 2:
-        outfile = sys.argv[2]
-
+    infile = positional[0] if len(positional) > 0 else "map.osm"
+    outfile = positional[1] if len(positional) > 1 else ("osmdata_buildings.lua" if buildings else "osmdata.lua")
     bounds_length = (16384, 16384)
-    if len(sys.argv) > 3:
-        bounds_length = tuple(map(int, sys.argv[3].split(",")))
+    if len(positional) > 2:
+        bounds_length = tuple(map(int, positional[2].split(",")))
         assert len(bounds_length) == 2
     bounds = None
-    if len(sys.argv) > 4:
-        coords = map(float, sys.argv[4].split(","))
+    if len(positional) > 3:
+        coords = map(float, positional[3].split(","))
         bounds = dict((key, c) for key, c in zip(["minlat", "minlon", "maxlat", "maxlon"], coords))
 
-    convert_osm(infile, outfile, bounds_length, bounds, log_file=None)
+    if log_file:
+        fn = convert_buildings_only if buildings else convert_osm
+        stats = fn(infile, outfile, bounds_length, bounds, log_file=log_file)
+        if not stats or not stats.get("ok"):
+            sys.exit(1)
+        return
+
+    sys.stdout = open("log.txt", "w", encoding="utf-8")
+    sys.stderr = sys.stdout
+    if buildings:
+        convert_buildings_only(infile, outfile, bounds_length, bounds, log_file=None)
+    else:
+        convert_osm(infile, outfile, bounds_length, bounds, log_file=None)
 
 
 if __name__ == "__main__":

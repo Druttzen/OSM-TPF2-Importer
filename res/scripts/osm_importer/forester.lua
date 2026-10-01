@@ -75,33 +75,66 @@ function f.getModels(config)
 	return models
 end
 
-function f.polygonPositions(nodes,polygon)
+function f.polygonPositions(nodes, polygon)
 	local points = {}
-	for i,nodeId in pairs(polygon) do
-		table.insert(points, assert(assert(nodes[nodeId] or print(nodeId)).pos or print(nodeId)) )
+	if type(nodes) ~= "table" or type(polygon) ~= "table" then
+		return points
+	end
+	for _, nodeId in pairs(polygon) do
+		local node = nodes[nodeId]
+		if node and node.pos then
+			points[#points + 1] = node.pos
+		end
 	end
 	return points
 end
 
-function f.plantPolygon(nodes,polygon,config)
+function f.plantPolygon(nodes, polygon, config)
 	if not f.available then
-		return
+		return false
 	end
-	snowForester.plant2(Polygon:Create(f.polygonPositions(nodes,polygon)), f.density[config] or f.density.__default, f.getModels(config), 0.3)
+	local models = f.getModels(config)
+	if not models or #models == 0 then
+		return false
+	end
+	local points = f.polygonPositions(nodes, polygon)
+	if #points < 3 then
+		return false
+	end
+	local ok = pcall(function()
+		snowForester.plant2(Polygon:Create(points), f.density[config] or f.density.__default, models, 0.3)
+	end)
+	return ok
 end
 
-function f.plantMultiPolygon(nodes,mp,config)
-	if not f.available then
-		return
+function f.plantMultiPolygon(nodes, mp, config)
+	if not f.available or type(mp) ~= "table" then
+		return false
 	end
-	local outer,inner = {},{}
-	for i,polygon in pairs(mp.outer) do
-		outer[i] = f.polygonPositions(nodes,polygon)
+	local models = f.getModels(config)
+	if not models or #models == 0 then
+		return false
 	end
-	for i,polygon in pairs(mp.inner) do
-		inner[i] = f.polygonPositions(nodes,polygon)
+	local outer, inner = {}, {}
+	for i, polygon in pairs(mp.outer or {}) do
+		local pts = f.polygonPositions(nodes, polygon)
+		if #pts >= 3 then
+			outer[#outer + 1] = pts
+		end
 	end
-	snowForester.plant2(MultiPolygon:Create(outer, inner), f.density[config] or f.density.__default, f.getModels(config), 0.3)
+	for i, polygon in pairs(mp.inner or {}) do
+		local pts = f.polygonPositions(nodes, polygon)
+		if #pts >= 3 then
+			inner[#inner + 1] = pts
+		end
+	end
+	if #outer == 0 then
+		return false
+	end
+	local ok = pcall(function()
+		snowForester.plant2(MultiPolygon:Create(outer, inner), f.density[config] or f.density.__default, models, 0.3)
+	end)
+	return ok
 end
 
 function f.modelrestest()

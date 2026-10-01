@@ -96,7 +96,7 @@ local function ensureLoaded()
 	end
 	sendEvent("require-osm_importer.main")
 	ui.loaded = true
-	setStatus("Importer loaded. Pause the game, then run stages 1→4.")
+	setStatus("Importer loaded. Pause the game, then run stages 1→5.")
 	return true
 end
 
@@ -190,35 +190,23 @@ function createOsmStudioWindow()
 
 	stageButton("1  Town labels + disable towns", function()
 		if not ensureLoaded() then return end
-		setStatus("Stage 1: town labels…")
-		m.towns.createTownLabels(osmdata.towns)
-		sendEvent("stage.towns_script", {
+		setStatus("Stage 1: town labels (script thread)…")
+		sendEvent("towns.createTownLabels", {
 			delEdges = ui.delEdges and ui.delEdges:isSelected() or false,
 			delAssets = ui.delAssets and ui.delAssets:isSelected() or false,
 		})
-		if ui.delEdges and ui.delEdges:isSelected() then
-			setStatus("Stage 1 sent. Bulldoze all streets is ON.")
-		else
-			setStatus("Stage 1 sent. Streets were not bulldozed.")
-		end
 	end)
 
 	stageButton("2  Areas (forests, shrubs, ground)", function()
 		if not ensureLoaded() then return end
-		setStatus("Stage 2: areas (script thread, can take a while)…")
+		setStatus("Stage 2: areas (script continues if window is closed)…")
 		sendEvent("areas.buildAreas", collectOptions())
 	end)
 
 	stageButton("3  Streets and tracks (resumes if stopped)", function()
 		if not ensureLoaded() then return end
-		local options = collectOptions()
-		setStatus("Stage 3: edges…")
-		local ok, err = pcall(function()
-			m.simpleproposalseq.SimpleProposalSeq(osmdata, options)
-		end)
-		if not ok then
-			setStatus("Stage 3 error: " .. tostring(err) .. " — try Reload, then run again.")
-		end
+		setStatus("Stage 3: streets and tracks (script thread; resumes if stopped)…")
+		sendEvent("edges.SimpleProposalSeq", collectOptions())
 	end)
 
 	stageButton("4  Buildings (houses / shops / industry)", function()
@@ -229,20 +217,25 @@ function createOsmStudioWindow()
 
 	stageButton("5  Objects (trees, fountains, bollards)", function()
 		if not ensureLoaded() then return end
-		setStatus("Stage 5: objects…")
-		m.models.buildObjects(osmdata.objects)
-		setStatus("Stage 5 finished.")
+		setStatus("Stage 5: objects (script thread)…")
+		sendEvent("models.buildObjects", collectOptions())
 	end)
 
 	root:addItem(api.gui.comp.Component.new("HorizontalLine"))
 
 	local row = api.gui.layout.BoxLayout.new("HORIZONTAL")
-	local stopBtn = api.gui.comp.Button.new(api.gui.comp.TextView.new("Stop edges / buildings"), true)
+	local stopBtn = api.gui.comp.Button.new(api.gui.comp.TextView.new("Stop towns / areas / edges / buildings"), true)
 	stopBtn:onClick(function()
 		if rawget(_G, "osm_importer") then
 			m.simpleproposalseq.stop = true
 			if m.buildings then
 				m.buildings.stop = true
+			end
+			if m.towns then
+				m.towns.stop = true
+			end
+			if m.areas then
+				m.areas.stop = true
 			end
 			setStatus("Stop requested.")
 		end

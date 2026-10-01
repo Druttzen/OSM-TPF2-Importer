@@ -47,12 +47,16 @@ function st.vanillaFor(street)
 		return ow and vanilla.town_small_ow or vanilla.town_small
 	elseif typ == "unclassified" or typ == "track" then
 		return vanilla.country_small
-	elseif typ == "path" or typ == "footway" or typ == "cycleway" or typ == "bridleway" or typ == "pedestrian" then
+	elseif typ == "path" or typ == "footway" or typ == "cycleway" or typ == "bridleway" or typ == "pedestrian" or typ == "steps" or typ == "platform" then
+		return vanilla.town_small
+	elseif typ == "construction" then
 		return vanilla.town_small
 	elseif typ == "raceway" then
 		return vanilla.country_small_ow
 	elseif typ == "aeroway" then
 		return (street.subtype == "runway") and vanilla.runway or vanilla.taxi
+	elseif typ == "waterstream" then
+		return vanilla.country_small
 	end
 	return st.fallback_type
 end
@@ -257,8 +261,8 @@ local mkh_airportroads = {  -- 2232249704 Airport Roads (EXPERIMENTAL)
 
 
 st.types = {  -- tag "highway"
-	steps = false,
-	platform = false,
+	steps = "standard/town_small_new.lua",
+	platform = "standard/town_small_new.lua",
 	motorway = {
 		tw = {
 			"standard/country_large_new.lua",
@@ -425,7 +429,7 @@ st.types = {  -- tag "highway"
 			easybr_rtp.stadt_asphalt_ow1,
 		},
 	},
-	construction = false, --marc26_tramstreet.s1lane_smsw,
+	construction = "standard/town_small_new.lua",
 	_pedestrian_surface = {
 		sett = jf_roads.stadtC,
 		cobblestone = jf_roads.stadtC,
@@ -521,9 +525,6 @@ st.types = {  -- tag "highway"
 		cobblestone = lollo_sft.cobble1m,
 	},
 	footway = function(street)
-		if street.level and street.level~=0 then
-			return ""
-		end
 		local r
 		if street.width and street.width<0.5 then
 			return lollo_sft.ultrathin
@@ -556,9 +557,6 @@ st.types = {  -- tag "highway"
 	end,
 	path = {
 		tw = function(street)
-			if street.level and street.level~=0 then
-				return ""
-			end
 			if street.segregated then
 				return majuen_smp.bikelane
 			else
@@ -571,9 +569,6 @@ st.types = {  -- tag "highway"
 			end
 		end,
 		ow = function(street)
-			if street.level and street.level~=0 then
-				return ""
-			end
 			-- return lollo_sft.asphalt1way
 			if street.surface then
 				return st.types.footway(street)
@@ -598,9 +593,12 @@ st.types = {  -- tag "highway"
 		local width
 		if data.waterwaytype=="stream" then
 			width = data.width or 3
-		elseif data.waterwaytype=="river" then  --build only small rivers
+		elseif data.waterwaytype=="river" then
 			width = data.width or (data.boat and 30 or 15)
+		else
+			width = data.width or 4
 		end
+		width = tonumber(width) or 4
 		-- if width<2 then
 			-- return rutel_bach.brook1m
 		-- elseif width<3 then
@@ -621,15 +619,13 @@ st.types = {  -- tag "highway"
 		elseif width<20 then
 			return relozu_wattex.gray16m  -- looks a bit more natural
 		end
-		return ""
+		return relozu_wattex.gray16m
 	end,
 	aeroway = function(data)
 		if data.subtype=="runway" then
 			return mkh_airportroads.runway
-		elseif data.subtype=="taxiway" then
-			return mkh_airportroads.taxiway
 		end
-		return ""
+		return mkh_airportroads.taxiway
 	end,
 	raceway = "standard/country_small_one_way_new.lua",
 }
@@ -668,6 +664,8 @@ st.osmtypes_footways = tools.list2dict{
 	"path",
 	"track",
 	"bridleway",
+	"steps",
+	"platform",
 }
 st.osmtypes_water = tools.list2dict{"waterstream"}
 st.osmtypes_airport = tools.list2dict{"aeroway"}

@@ -80,7 +80,7 @@ function s.SimpleProposalSeq(data,options)
 	if s.stop and remaining then
 		print("Resume remaining edges:", (s.nseq - s.seqi + 1))
 		s.stop = false
-		s.pb = s.progressWindow()
+		s.pb = s.tryProgressWindow()
 		s.SimpleProposalSeqE()
 		return
 	end
@@ -98,7 +98,7 @@ function s.SimpleProposalSeq(data,options)
 		s.nedges = { STREET = 0, TRACK = 0 }
 		s.nosuc = { STREET = 0, TRACK = 0 }
 		s.nskipped = { STREET = 0, TRACK = 0 }
-		s.pb = s.progressWindow()
+		s.pb = s.tryProgressWindow()
 		s.SimpleProposalSeqE()
 		return
 	end
@@ -120,7 +120,10 @@ function s.SimpleProposalSeq(data,options)
 		print("Node heights already set; skip.")
 	else
 		print("Set Nodes z height and tangents...")
-		nodesheights.setAllNodesHeight(data.nodes, data.paths, data.edges)
+		local okh, errh = pcall(nodesheights.setAllNodesHeight, data.nodes, data.paths or {}, data.edges)
+		if not okh then
+			print("WARNING nodesheights failed:", errh)
+		end
 	end
 
 	local skipBuilt = s.hadRun == true
@@ -156,49 +159,95 @@ function s.SimpleProposalSeq(data,options)
 	s.count = 0
 	print("Edges:  "..s.nseq)
 	print(string.format("Estimated Time: %.0f min (%.2f h)", s.nseq/5/60, s.nseq/5/3600))
-	s.pb = s.progressWindow()
+	s.pb = s.tryProgressWindow()
 	s.SimpleProposalSeqE()
 end
 
-function s.SimpleProposalSeqE()
-	if s.seqi <= s.nseq and not s.stop then
-		local edge = s.seqlist[s.seqi]
-		s.seqi = s.seqi + 1
-		s.count = s.count + 1
-		s.pb:setProgress(s.count/math.max(1, s.nseq))
-		s.pb:setTask(edge.track and "Track: "..edge.track.type or edge.street and "Street: "..edge.street.type)
-		s.SimpleProposalSeqEdgeCmd(edge, s.cbLevel, true)
-	else
-		print("-------------------------------------------------------------")
-		if s.stop then
-			print("Process aborted !")
-			print(string.format("Remaining Edges: %d", math.max(0, s.nseq - s.seqi + 1)))
-			persistRemaining()
-			s.finished = false
-		else
-			print("Finished SimpleProposalCmdSeq")
-			s.seqlist = {}
-			s.nseq = 0
-			s.seqi = 1
-			s.called = false
-			s.finished = true
-			_G.osm_importer_seq_keys = nil
-		end
-		print(os.date())
-		local timedur = timer.stop()
-		print(string.format("Time: %.2f min (%.2f h)", timedur/60, timedur/3600))
-		print(string.format("Streets build failed: %d / %d  (%.1f %%)  skipped: %d",
-			s.nosuc.STREET, s.nedges.STREET, failpct(s.nosuc.STREET, s.nedges.STREET), s.nskipped.STREET or 0))
-		print(string.format("Tracks build failed: %d / %d  (%.1f %%)  skipped: %d",
-			s.nosuc.TRACK, s.nedges.TRACK, failpct(s.nosuc.TRACK, s.nedges.TRACK), s.nskipped.TRACK or 0))
-		if s.pb then
-			s.pb:getParent():getParent():remove()
-			s.pb = nil
-		end
+function s.countEdge(edge, skipped, failed)
+	local etype = (edge and edge.track) and "TRACK" or "STREET"
+	s.nedges[etype] = (s.nedges[etype] or 0) + 1
+	if skipped then
+		s.nskipped[etype] = (s.nskipped[etype] or 0) + 1
+	elseif failed then
+		s.nosuc[etype] = (s.nosuc[etype] or 0) + 1
 	end
 end
 
+function s.finishSeq()
+	print("-------------------------------------------------------------")
+	if s.stop then
+		print("Process aborted !")
+		print(string.format("Remaining Edges: %d", math.max(0, s.nseq - s.seqi + 1)))
+		persistRemaining()
+		s.finished = false
+	else
+		print("Finished SimpleProposalCmdSeq")
+		s.seqlist = {}
+		s.nseq = 0
+		s.seqi = 1
+		s.called = false
+		s.finished = true
+		_G.osm_importer_seq_keys = nil
+	end
+	print(os.date())
+	local timedur = timer.stop()
+	print(string.format("Time: %.2f min (%.2f h)", timedur/60, timedur/3600))
+	print(string.format("Streets build failed: %d / %d  (%.1f %%)  skipped: %d",
+		s.nosuc.STREET or 0, s.nedges.STREET or 0, failpct(s.nosuc.STREET, s.nedges.STREET), s.nskipped.STREET or 0))
+	print(string.format("Tracks build failed: %d / %d  (%.1f %%)  skipped: %d",
+		s.nosuc.TRACK or 0, s.nedges.TRACK or 0, failpct(s.nosuc.TRACK, s.nedges.TRACK), s.nskipped.TRACK or 0))
+	if s.pb then
+		pcall(function()
+			s.pb:getParent():getParent():remove()
+		end)
+		s.pb = nil
+	end
+end
+
+function s.SimpleProposalSeqE()
+	if s._running then
+		s._again = true
+		return
+	end
+	s._running = true
+	while s.seqi <= s.nseq and not s.stop do
+		local edge = s.seqlist[s.seqi]
+		s.seqi = s.seqi + 1
+		s.count = s.count + 1
+		if s.pb then
+			pcall(function()
+				s.pb:setProgress(s.count/math.max(1, s.nseq))
+				local label = "Edge"
+				if edge and edge.track then
+					label = "Track: "..tostring(edge.track.type)
+				elseif edge and edge.street then
+					label = "Street: "..tostring(edge.street.type)
+				end
+				s.pb:setTask(label)
+			end)
+		end
+		s._waiting = true
+		s._again = false
+		local ok, err = pcall(s.SimpleProposalSeqEdgeCmd, edge, s.cbLevel, true)
+		if not ok then
+			print("Skip edge error", err)
+			s.countEdge(edge, true, false)
+			s._waiting = false
+		elseif s._waiting then
+			s._running = false
+			return
+		end
+	end
+	s._running = false
+	s.finishSeq()
+end
+
 function s.SimpleProposalSeqEdgeCmd(edge,cbLevel,retryWSmStreet)
+	if not edge or not edge.node0 or not edge.node1 then
+		s.countEdge(edge, true, false)
+		s._waiting = false
+		return
+	end
 	s.edge = edge
 	local d2 = {
 		nodes = {
@@ -211,42 +260,73 @@ function s.SimpleProposalSeqEdgeCmd(edge,cbLevel,retryWSmStreet)
 	}
 	s.replaceNode(d2,edge.node0)
 	s.replaceNode(d2,edge.node1)
-	if type(d2.nodes[edge.node0].id)=="number" and d2.nodes[edge.node0].id == d2.nodes[edge.node1].id then
-		print("Node entity Id equal!", d2.nodes[edge.node1].id, toString(d2), toString(s.data.nodes[edge.node0]), toString(s.data.nodes[edge.node1]))
-		error("")
+	local n0 = d2.nodes[edge.node0]
+	local n1 = d2.nodes[edge.node1]
+	if not n0 or not n1 then
+		s.countEdge(edge, true, false)
+		s._waiting = false
+		return
+	end
+	if type(n0.id)=="number" and n0.id == n1.id then
+		print("Skip edge, node entity ids equal", n0.id, edge.__key or "")
+		s.countEdge(edge, true, false)
+		s._waiting = false
+		return
 	end
 
 	if cbLevel>=1 then
-		print("Cmd Edge #"..s.count.." - "..(edge.id or edge.__key or "").."  "..(cbLevel>=1 and string.format("N0: %s (%s) - N1: %s (%s) - %s", edge.node0, d2.nodes[edge.node0].id or "", edge.node1, d2.nodes[edge.node1].id or "", edge.track and "TRACK" or edge.street and "highway="..edge.street.type)) .. (cbLevel>=3 and toString(d2) or ""))
+		print("Cmd Edge #"..s.count.." - "..(edge.id or edge.__key or "").."  "..string.format("N0: %s (%s) - N1: %s (%s) - %s", edge.node0, n0.id or "", edge.node1, n1.id or "", edge.track and "TRACK" or edge.street and "highway="..tostring(edge.street.type)))
 	end
 	simpleproposal.SimpleProposalCmd(d2, nil, true, cbLevel, function(res, success)
-		local etype = edge.track and "TRACK" or edge.street and "STREET"
-		s.nedges[etype] = s.nedges[etype] + 1
+		local etype = edge.track and "TRACK" or "STREET"
+		s.nedges[etype] = (s.nedges[etype] or 0) + 1
 		if res and res.skipped then
 			s.nskipped[etype] = (s.nskipped[etype] or 0) + 1
 		elseif not success then
-			s.nosuc[etype] = s.nosuc[etype] + 1
+			s.nosuc[etype] = (s.nosuc[etype] or 0) + 1
 		end
+		s._waiting = false
 		s.SimpleProposalSeqE()
 	end, retryWSmStreet)
 end
 
 function s.replaceNode(d,node)
 	local id = s.getIdIfExist(node)
-	if id then
-		if s.cbLevel>=2 then
-			print("Node already exist",id,toString(s.data.nodes[node]))
-		end
-		local basenode = api.engine.getComponent(id,api.type.ComponentType.BASE_NODE)
-		d.nodes[node].id = id
-		d.nodes[node].comp = basenode
+	if not id then
+		return
 	end
+	if s.cbLevel>=2 then
+		print("Node already exist",id,toString(s.data.nodes[node]))
+	end
+	local ok, basenode = pcall(api.engine.getComponent, id, api.type.ComponentType.BASE_NODE)
+	if not ok or not basenode or not d.nodes[node] then
+		return
+	end
+	d.nodes[node].id = id
+	d.nodes[node].comp = basenode
 end
 
 function s.getIdIfExist(node)
-	local pos = assert(s.data.nodes[node].pos)
-	local ents = game.interface.getEntities({pos=pos, radius=3}, {type="BASE_NODE"})  -- in most cases radius=0 is sufficient, but for sharp angles the node position is not in bounding box
-	return tools.getNearestNode(pos,ents,1e-3)  -- choose  existing node only if very close
+	local n = s.data.nodes[node]
+	if not n or not n.pos then
+		return
+	end
+	local pos = n.pos
+	local ok, ents = pcall(function()
+		return game.interface.getEntities({pos=pos, radius=3}, {type="BASE_NODE"})
+	end)
+	if not ok or type(ents) ~= "table" then
+		return
+	end
+	return tools.getNearestNode(pos, ents, 1e-3)
+end
+
+function s.tryProgressWindow()
+	local pb
+	pcall(function()
+		pb = s.progressWindow()
+	end)
+	return pb
 end
 
 function s.progressWindow()

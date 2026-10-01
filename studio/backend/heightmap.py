@@ -22,6 +22,8 @@ import urllib.request
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
+from .jobs import JobCancelled, raise_if_cancelled
+
 import numpy as np
 from PIL import Image
 from pyproj import Transformer
@@ -159,9 +161,12 @@ def _download_terrarium(box: dict, zoom: int, dest: Path) -> tuple[np.ndarray, d
         except Exception:
             return x, y, None
 
-    with ThreadPoolExecutor(max_workers=8) as pool:
+    done = 0
+    pool = ThreadPoolExecutor(max_workers=8)
+    try:
         futs = [pool.submit(one, j) for j in jobs]
         for fut in as_completed(futs):
+            raise_if_cancelled(getattr(_PROGRESS_LOCAL, "cancel", None))
             x, y, tile = fut.result()
             done += 1
             if done % 8 == 0 or done == len(jobs):
@@ -169,6 +174,11 @@ def _download_terrarium(box: dict, zoom: int, dest: Path) -> tuple[np.ndarray, d
             if tile is None:
                 continue
             mosaic[(y - y0) * 256:(y - y0 + 1) * 256, (x - x0) * 256:(x - x0 + 1) * 256] = tile
+    except JobCancelled:
+        pool.shutdown(wait=False, cancel_futures=True)
+        raise
+    else:
+        pool.shutdown(wait=True)
 
     n = 2 ** zoom
     res = (2 * MERC_EXTENT) / n / 256.0
@@ -440,15 +450,21 @@ def generate_heightmap(
     strip_vegetation: bool = True,
     copy_to_game: bool = True,
     progress=None,
+    cancel=None,
 ) -> dict:
     dest_dir.mkdir(parents=True, exist_ok=True)
     _PROGRESS_LOCAL.fn = progress
+    _PROGRESS_LOCAL.cancel = cancel
     try:
         return _generate_heightmap(
             box, pixels, dest_dir, heightmaps_dir, strip_vegetation, copy_to_game
         )
+    except JobCancelled:
+        _progress(dest_dir, "Cancelled.")
+        return {"ok": False, "cancelled": True, "error": "Cancelled"}
     finally:
         _PROGRESS_LOCAL.fn = None
+        _PROGRESS_LOCAL.cancel = None
 
 
 def _generate_heightmap(

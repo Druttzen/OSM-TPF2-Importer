@@ -6,9 +6,125 @@ import re
 import sys
 from pathlib import Path
 
+from . import atomic
+
 STEAM_APP = "1066780"
 _VDF_PATH = re.compile(r'"path"\s+"([^"]+)"', re.I)
 _EXE_NAMES = ("TransportFever2.exe", "TransportFever2")
+GAME_CONFIG = {
+    "tpf2": {
+        "app_id": "1066780",
+        "label": "Transport Fever 2",
+        "names": ("Transport Fever 2", "TransportFever2"),
+        "executables": ("TransportFever2.exe", "TransportFever2"),
+    },
+    "tf3": {
+        "app_id": "3493540",
+        "label": "Transport Fever 3",
+        "names": ("Transport Fever 3", "TransportFever3"),
+        "executables": ("TransportFever3.exe", "TransportFever3"),
+    },
+}
+
+
+def discover_game(repo_root: Path, game_id: str = "tpf2", hint_game: str = "") -> dict:
+    """Find a selected Transport Fever installation without changing game-specific tools."""
+    config = GAME_CONFIG.get(game_id)
+    if not config:
+        return {"ok": False, "error": f"Unknown Transport Fever game: {game_id}"}
+
+    repo_root = Path(repo_root).resolve()
+    steam_dir = _steam_install()
+    libraries = _steam_libraries(steam_dir)
+    game = _find_game_for(repo_root, hint_game, libraries, config)
+    if game:
+        library = _library_from_game(game)
+        if library and library not in libraries:
+            libraries.insert(0, library)
+        if not steam_dir:
+            steam_dir = _steam_install_near(libraries)
+    else:
+        library = libraries[0] if libraries else None
+
+    mods_dir = game / "mods" if game else None
+    if mods_dir and not mods_dir.is_dir():
+        mods_dir = None
+    workshop = None
+    for root in (library, *libraries):
+        if not root:
+            continue
+        candidate = root / "steamapps" / "workshop" / "content" / config["app_id"]
+        if candidate.is_dir():
+            workshop = candidate
+            break
+    heightmaps = _find_heightmaps(steam_dir, libraries) if game_id == "tpf2" else None
+    exe = _game_exe_for(game, config) if game else None
+    ok = bool(game and mods_dir)
+    return {
+        "ok": ok,
+        "game_id": game_id,
+        "game_name": config["label"],
+        "repo": str(repo_root),
+        "game_dir": str(game) if game else "",
+        "exe": str(exe) if exe else "",
+        "mods_dir": str(mods_dir) if mods_dir else "",
+        "steam_dir": str(steam_dir) if steam_dir else "",
+        "steam_library": str(library) if library else "",
+        "workshop_dir": str(workshop) if workshop else "",
+        "heightmaps": str(heightmaps) if heightmaps else "",
+        "work_dir": str(repo_root / "studio" / "work"),
+        "found": [name for name, value in (("game", game), ("mods", mods_dir), ("workshop", workshop), ("heightmaps", heightmaps)) if value],
+        "error": "" if ok else f"Could not find {config['label']}. Browse to its install folder.",
+    }
+
+
+def _game_exe_for(game: Path, config: dict) -> Path | None:
+    for name in config["executables"]:
+        candidate = game / name
+        if candidate.is_file():
+            return candidate
+    return None
+
+
+def _is_game_dir_for(path: Path | str | None, config: dict) -> bool:
+    candidate = Path(path) if path else None
+    if not candidate or not candidate.is_dir():
+        return False
+    return bool(_game_exe_for(candidate, config))
+
+
+def _find_game_for(repo_root: Path, hint: str, libraries: list[Path], config: dict) -> Path | None:
+    if hint:
+        hinted = Path(hint).expanduser()
+        if _is_game_dir_for(hinted, config):
+            return hinted.resolve()
+        parent = hinted.parent if hinted.is_file() else hinted
+        if _is_game_dir_for(parent, config):
+            return parent.resolve()
+
+    current = repo_root
+    for _ in range(8):
+        if _is_game_dir_for(current, config):
+            return current
+        if current.parent == current:
+            break
+        current = current.parent
+    if repo_root.parent.name.lower() == "mods" and _is_game_dir_for(repo_root.parent.parent, config):
+        return repo_root.parent.parent.resolve()
+
+    for library in libraries:
+        for name in config["names"]:
+            candidate = library / "steamapps" / "common" / name
+            if _is_game_dir_for(candidate, config):
+                return candidate.resolve()
+        manifest = library / "steamapps" / f"appmanifest_{config['app_id']}.acf"
+        if manifest.is_file():
+            install_dir = _acf_installdir(manifest)
+            if install_dir:
+                candidate = library / "steamapps" / "common" / install_dir
+                if _is_game_dir_for(candidate, config):
+                    return candidate.resolve()
+    return None
 
 
 def discover(repo_root: Path, hint_game: str = "") -> dict:
@@ -302,5 +418,5 @@ def load_settings(work_dir: Path) -> dict:
 
 def save_settings(work_dir: Path, data: dict) -> dict:
     work_dir.mkdir(parents=True, exist_ok=True)
-    (work_dir / "settings.json").write_text(json.dumps(data, indent=2), encoding="utf-8")
+    atomic.write_text(work_dir / "settings.json", json.dumps(data, indent=2) + "\n")
     return data

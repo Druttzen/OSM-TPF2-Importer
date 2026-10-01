@@ -26,6 +26,10 @@ local events = {
 		ensureMain()
 		m.areas.buildAreas(osmdata.areas, osmdata.nodes, param or {})
 	end,
+	["areas.step"] = function(param)
+		ensureMain()
+		m.areas.step()
+	end,
 	["areas.buildForests"] = function(param)
 		ensureMain()
 		m.areas.buildForests(osmdata.areas.forests, osmdata.nodes, param or {})
@@ -48,6 +52,14 @@ local events = {
 			bulldoze.delAssets()
 		end
 	end,
+	["towns.createTownLabels"] = function(param)
+		ensureMain()
+		m.towns.createTownLabels(osmdata.towns, param or {})
+	end,
+	["towns.step"] = function(param)
+		ensureMain()
+		m.towns.step()
+	end,
 	["buildings.buildBuildings"] = function(param)
 		ensureMain()
 		m.buildings.buildBuildings(osmdata.buildings, param or {})
@@ -55,6 +67,14 @@ local events = {
 	["buildings.step"] = function(param)
 		ensureMain()
 		m.buildings.step()
+	end,
+	["models.buildObjects"] = function(param)
+		ensureMain()
+		m.models.buildObjects(osmdata.objects)
+	end,
+	["edges.SimpleProposalSeq"] = function(param)
+		ensureMain()
+		m.simpleproposalseq.SimpleProposalSeq(osmdata, param or osm_importer.options)
 	end,
 	["m.reload"] = function(param)
 		ensureMain()

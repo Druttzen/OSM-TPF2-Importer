@@ -313,7 +313,7 @@ function b.buildOne(bldg, cand)
 	local nativeD = cand.d * PARCEL_M
 	local sx = nativeW > 0.1 and math.max(0.7, math.min(1.35, osmW / nativeW)) or 1
 	local sy = nativeD > 0.1 and math.max(0.7, math.min(1.35, osmD / nativeD)) or 1
-	local z = tools.getTerrainZ(bldg.pos[1], bldg.pos[2])
+	local z = tools.safeTerrainZ(bldg.pos[1], bldg.pos[2], 0)
 	local tf = headingTransf(bldg.pos[1], bldg.pos[2], z, heading, sx, sy)
 	local params = {
 		mdl = cand.mdl,

@@ -74,6 +74,22 @@ function t.getTerrainZ(x,y)
 	return api.engine.terrain.getHeightAt(api.type.Vec2f.new(x, y))  --getBaseHeightAt
 end
 
+function t.safeTerrainZ(x, y, fallback)
+	fallback = fallback or 0
+	if not x or not y then
+		return fallback
+	end
+	local okValid, valid = pcall(t.isValidCoordinate, x, y)
+	if not okValid or not valid then
+		return fallback
+	end
+	local ok, z = pcall(t.getTerrainZ, x, y)
+	if ok and type(z) == "number" then
+		return z
+	end
+	return fallback
+end
+
 function t.isValidCoordinate(x,y)
 	return api.engine.terrain.isValidCoordinate(api.type.Vec2f.new(x, y))
 end

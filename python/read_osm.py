@@ -6,7 +6,7 @@ from osmread import parse_file, Node, Way, Relation
 osmosis_path = "osmosis\\bin\\osmosis"  # sry unix, please adjust...
 
 _BOUNDS_TAG = re.compile(br"<bounds\b([^>]*)/?>")
-_ATTR = re.compile(r'(\w+)\s*=\s*"([^"]*)"')
+_ATTR = re.compile(r"""(\w+)\s*=\s*["']([^"']*)["']""")
 
 
 def crop_bounds(filename, bounds):
@@ -47,17 +47,29 @@ def isinbounds(bounds, lat, lon):
     return bounds["minlat"] <= lat <= bounds["maxlat"] and bounds["minlon"] <= lon <= bounds["maxlon"]
 
 
+def _is_xml_osm(filename):
+    lower = str(filename).lower()
+    return (
+        lower.endswith(".osm")
+        or lower.endswith(".xml")
+        or lower.endswith(".osm.xml")
+        or lower.endswith(".osm.bz2")
+        or lower.endswith(".bz2")
+        or lower.endswith(".osm.gz")
+        or lower.endswith(".gz")
+    )
+
+
 def read_bounds(filename):
     """Scan the OSM XML header for <bounds> without parsing the whole file."""
-    lower = str(filename).lower()
-    if not (lower.endswith(".osm") or lower.endswith(".xml") or lower.endswith(".osm.xml")):
+    if not _is_xml_osm(filename):
         return None
-    with open(filename, "rb") as fh:
+    from osmread import _open
+    with _open(filename) as fh:
         head = fh.read(262144)
         match = _BOUNDS_TAG.search(head)
         if match is None:
-            extra = fh.read(1024 * 1024 - 262144)
-            match = _BOUNDS_TAG.search(head + extra)
+            match = _BOUNDS_TAG.search(head + fh.read(1024 * 1024 - 262144))
     if match is None:
         raise AssertionError("OSM file has no <bounds> element in the first 1 MB")
     attr = match.group(1).decode("utf-8", "replace")
@@ -70,8 +82,7 @@ def read_bounds(filename):
     return bounds
 
 
-def read(filename, bounds=None):
-    print(f"Read osm data from '{filename}' ...")
+def _resolve_bounds(filename, bounds):
     file_bounds = None
     try:
         file_bounds = read_bounds(filename)
@@ -86,15 +97,41 @@ def read(filename, bounds=None):
         )
     if bounds:
         print("Using Studio/map bounds for out-of-bounds flags:", bounds)
-    assert filename.endswith(".osm") or filename.endswith(".pbf"), "File type needs to be .osm or .pbf"
+    return use
+
+
+def _bounds_close(a, b, eps=0.0008):
+    if not a or not b:
+        return False
+    try:
+        return all(abs(float(a[k]) - float(b[k])) <= eps for k in ("minlat", "minlon", "maxlat", "maxlon"))
+    except (KeyError, TypeError, ValueError):
+        return False
+
+
+def _already_cropped(filename, bounds):
+    """True when the file header is already the yellow box (Studio crop / Overpass)."""
+    try:
+        file_bounds = read_bounds(filename)
+    except AssertionError:
+        return False
+    return _bounds_close(file_bounds, bounds)
+
+
+def _read_one_pass(filename, use):
+    print("One-pass load (file already cropped to this box)")
     nodes = {}
     ways = {}
     relations = {}
+    n = 0
     for entity in parse_file(filename):
+        n += 1
+        if n % 500000 == 0:
+            print(f"Load {n} objects, kept nodes {len(nodes)}")
         if isinstance(entity, Node):
-            nodes[entity.id] = entity
             if not isinbounds(use, entity.lat, entity.lon):
                 entity.tags["outofbounds"] = True
+            nodes[entity.id] = entity
         elif isinstance(entity, Way):
             ways[entity.id] = entity
         elif isinstance(entity, Relation):
@@ -103,24 +140,82 @@ def read(filename, bounds=None):
     return nodes, ways, relations
 
 
+def read(filename, bounds=None):
+    print(f"Read osm data from '{filename}' ...")
+    use = _resolve_bounds(filename, bounds)
+    assert str(filename).lower().endswith((".osm", ".pbf", ".xml", ".bz2", ".gz")), "File type needs to be .osm / .osm.bz2 / .pbf"
+    if _already_cropped(filename, use):
+        return _read_one_pass(filename, use)
+
+    in_ids = set()
+    keep_ways = set()
+    needed = set()
+    keep_rels = set()
+    n = 0
+    for entity in parse_file(filename):
+        n += 1
+        if n % 500000 == 0:
+            print(f"Scan {n} objects, in-box nodes {len(in_ids)}")
+        if isinstance(entity, Node):
+            if isinbounds(use, entity.lat, entity.lon):
+                in_ids.add(entity.id)
+        elif isinstance(entity, Way):
+            refs = entity.nodes
+            if refs and any(nid in in_ids for nid in refs):
+                keep_ways.add(entity.id)
+                needed.update(refs)
+        elif isinstance(entity, Relation):
+            keep = False
+            for member in entity.members:
+                if member.type is Way and member.member_id in keep_ways:
+                    keep = True
+                    break
+                if member.type is Node and member.member_id in in_ids:
+                    keep = True
+                    break
+            if keep:
+                keep_rels.add(entity.id)
+    needed |= in_ids
+    print(f"Keep {len(needed)} nodes / {len(keep_ways)} ways / {len(keep_rels)} relations")
+
+    nodes = {}
+    ways = {}
+    relations = {}
+    n = 0
+    for entity in parse_file(filename):
+        n += 1
+        if n % 500000 == 0:
+            print(f"Load {n} objects, kept nodes {len(nodes)}")
+        if isinstance(entity, Node):
+            if entity.id not in needed:
+                continue
+            if not isinbounds(use, entity.lat, entity.lon):
+                entity.tags["outofbounds"] = True
+            nodes[entity.id] = entity
+        elif isinstance(entity, Way):
+            if entity.id in keep_ways:
+                ways[entity.id] = entity
+        elif isinstance(entity, Relation):
+            if entity.id in keep_rels:
+                relations[entity.id] = entity
+    print(f"Loaded {len(nodes)} Nodes / {len(ways)} Ways / {len(relations)} Relations")
+    return nodes, ways, relations
+
+
 def read_building_ways(filename, bounds=None):
-    """Two-pass parse: closed building ways, then only the nodes they reference."""
+    """Two-pass parse: closed building ways in the box, then only the nodes they reference."""
     print(f"Read building footprints from '{filename}' ...")
-    file_bounds = None
-    try:
-        file_bounds = read_bounds(filename)
-        if file_bounds:
-            print("Bounds of osm file:", file_bounds)
-    except AssertionError as exc:
-        print("OSM header bounds:", exc)
-    use = bounds or file_bounds
-    if use is None:
-        raise AssertionError(
-            "No map bounds: pass the Studio yellow box, or include <bounds> in the OSM file"
-        )
-    if bounds:
-        print("Using Studio/map bounds for out-of-bounds flags:", bounds)
-    assert filename.endswith(".osm") or filename.endswith(".pbf"), "File type needs to be .osm or .pbf"
+    use = _resolve_bounds(filename, bounds)
+    assert str(filename).lower().endswith((".osm", ".pbf", ".xml", ".bz2", ".gz")), "File type needs to be .osm / .osm.bz2 / .pbf"
+    cropped = _already_cropped(filename, use)
+    if cropped:
+        print("Building parse: file already cropped; skip in-box node scan")
+
+    in_ids = set()
+    if not cropped:
+        for entity in parse_file(filename):
+            if isinstance(entity, Node) and isinbounds(use, entity.lat, entity.lon):
+                in_ids.add(entity.id)
 
     ways = {}
     needed = set()
@@ -132,6 +227,8 @@ def read_building_ways(filename, bounds=None):
             continue
         wnodes = entity.nodes
         if len(wnodes) < 4 or wnodes[0] != wnodes[-1]:
+            continue
+        if not cropped and not any(nid in in_ids for nid in wnodes):
             continue
         ways[entity.id] = entity
         needed.update(wnodes)

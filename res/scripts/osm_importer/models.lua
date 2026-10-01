@@ -74,29 +74,45 @@ end
 
 function m.buildObjects(objects)
 	m.modelrestest()
-	print("Build Objects", #objects)
+	objects = objects or {}
+	local n = 0
+	for _ in pairs(objects) do
+		n = n + 1
+	end
+	print("Build Objects", n)
 	local built = {}
-	local skipped = {}
-	for i,data in pairs(objects) do
-		if not m.models[data.type] then
-			skipped[data.type] = (skipped[data.type] or 0) + 1
+	local skipped = { model = {}, oob = 0, con = 0, fail = 0 }
+	for _, data in pairs(objects) do
+		if type(data) ~= "table" or not data.pos then
+			skipped.fail = skipped.fail + 1
+		elseif not m.models[data.type] then
+			skipped.model[data.type] = (skipped.model[data.type] or 0) + 1
+		elseif not t.isValidCoordinate(data.pos[1], data.pos[2]) then
+			skipped.oob = skipped.oob + 1
 		else
-			m.buildModel(data.pos, data.type)
-			built[data.type] = (built[data.type] or 0) + 1
+			local ok = m.buildModel(data.pos, data.type)
+			if ok then
+				built[data.type] = (built[data.type] or 0) + 1
+			else
+				skipped.con = skipped.con + 1
+			end
 		end
 	end
 	print("Built: "..toString(built))
-	if next(skipped) then
-		print("Skipped (no model): "..toString(skipped))
+	if next(skipped.model) or skipped.oob > 0 or skipped.con > 0 or skipped.fail > 0 then
+		print("Skipped objects: "..toString(skipped))
 	end
 end
 
 function m.buildModel(pos, model)
-	m.buildCon(pos, "osm_importer/models/"..model)
+	return m.buildCon(pos, "osm_importer/models/"..model)
 end
 
 function m.buildCon(pos, con)
-	assert(api.res.constructionRep.find(con)>=0, "con not found: "..con)
+	if type(con) ~= "string" or api.res.constructionRep.find(con) < 0 then
+		print("Skip object, construction missing: "..tostring(con))
+		return false
+	end
 	local c = api.type.SimpleProposal.ConstructionEntity.new()
 	c.fileName = con
 	c.params = {
@@ -104,13 +120,17 @@ function m.buildCon(pos, con)
 		paramX = 0,
 		paramY = 0,
 	}
-	local transf = { 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, pos[1], pos[2], t.getTerrainZ(pos[1], pos[2]), 1 }
+	local z = t.safeTerrainZ(pos[1], pos[2], 0)
+	local transf = { 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, pos[1], pos[2], z, 1 }
 	for i = 1, 16 do
 		c.transf[i] = transf[i]
 	end
 	local p = api.type.SimpleProposal.new()
 	p.constructionsToAdd[1] = c
-	api.cmd.sendCommand(api.cmd.make.buildProposal(p, nil, true))
+	local ok = pcall(function()
+		api.cmd.sendCommand(api.cmd.make.buildProposal(p, nil, true))
+	end)
+	return ok
 end
 
 function m.modelrestest()
