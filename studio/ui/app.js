@@ -68,7 +68,10 @@ function showHits(hits) {
     const b = document.createElement("button");
     b.type = "button";
     b.className = "hit";
-    b.innerHTML = `${hit.label || "Place"}<small>${hit.type || ""} ${hit.lat.toFixed(4)}, ${hit.lon.toFixed(4)}</small>`;
+    b.appendChild(document.createTextNode(hit.label || "Place"));
+    const detail = document.createElement("small");
+    detail.textContent = `${hit.type || ""} ${hit.lat.toFixed(4)}, ${hit.lon.toFixed(4)}`;
+    b.appendChild(detail);
     b.onclick = async () => {
       hideHits();
       document.getElementById("searchQ").value = hit.label || "";
@@ -451,9 +454,23 @@ function renderModList(rows) {
   for (const row of rows) {
     const div = document.createElement("div");
     div.className = "mod";
-    const why = row.reason ? ` <small style="color:#9a907c">${row.reason}</small>` : "";
-    div.innerHTML = `<span class="dot ${row.installed ? "on" : ""}"></span>
-      <span>${row.name} <small style="color:#9a907c">${row.use || ""}</small>${why}</span>`;
+    const dot = document.createElement("span");
+    dot.className = `dot${row.installed ? " on" : ""}`;
+    div.appendChild(dot);
+    const details = document.createElement("span");
+    details.appendChild(document.createTextNode(`${row.name} `));
+    const use = document.createElement("small");
+    use.style.color = "#9a907c";
+    use.textContent = row.use || "";
+    details.appendChild(use);
+    if (row.reason) {
+      details.appendChild(document.createTextNode(" "));
+      const reason = document.createElement("small");
+      reason.style.color = "#9a907c";
+      reason.textContent = row.reason;
+      details.appendChild(reason);
+    }
+    div.appendChild(details);
     if (row.steam && row.id) {
       const b = document.createElement("button");
       b.textContent = row.installed ? "Open" : "Subscribe";
@@ -521,6 +538,8 @@ async function main() {
     if (!selected.ok) throw new Error(selected.error || "Could not select game.");
   }
   const boot = await api().get_bootstrap();
+  const hmPixels = document.getElementById("hmPixels");
+  hmPixels.max = boot.heightmap_max_pixels;
   targetGame = boot.target_game || "tpf2";
   document.body.dataset.game = targetGame;
   document.getElementById("gameTitle").textContent = targetGame === "tf3" ? "TPF3" : "TPF2";
@@ -552,8 +571,8 @@ async function main() {
     ? "Filtered OSM features (recommended)"
     : "Importer data (recommended)";
   document.getElementById("hmHint").textContent = targetGame === "tf3"
-    ? "Enter the exact output dimensions required by your TF3 map format. The output is a PNG only; in-game import is not supported yet."
-    : "Heightmap size is selected from the TPF2 map preset. Verify the generated range in the map editor.";
+    ? `Enter the exact output dimensions required by your TF3 map format. The output is a PNG only; in-game import is not supported yet. Maximum: ${boot.heightmap_max_pixels.toLocaleString()} pixels per side because temporary grids scale quadratically and 16,385 pixels can exceed 8 GiB of peak memory.`
+    : `Heightmap size is selected from the TPF2 map preset. Verify the generated range in the map editor. The ${boot.heightmap_max_pixels.toLocaleString()}-pixel ceiling includes the largest current preset; larger grids can exceed 8 GiB of peak temporary memory.`;
   document.title = targetGame === "tf3" ? "OSM-TPF3 Studio" : "OSM-TPF2 Studio";
   box = boot.box;
   sizeKey = boot.size_key;
@@ -817,8 +836,9 @@ async function main() {
     await syncBoxFromForm();
     if (!needPlace()) return;
     const outputPixels = targetGame === "tf3" ? Number(document.getElementById("hmPixels").value) : null;
-    if (targetGame === "tf3" && (!Number.isInteger(outputPixels) || outputPixels < 257 || outputPixels > 16385)) {
-      log("Enter a valid TF3 heightmap pixel size (257–16385) before generating.");
+    const maxPixels = Number(document.getElementById("hmPixels").max);
+    if (targetGame === "tf3" && (!Number.isInteger(outputPixels) || outputPixels < 257 || outputPixels > maxPixels)) {
+      log(`Enter a valid TF3 heightmap pixel size (257–${maxPixels}) before generating.`);
       return;
     }
     await runJob(

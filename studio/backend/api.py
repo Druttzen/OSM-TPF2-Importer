@@ -1,7 +1,6 @@
 """pywebview JS bridge for OSM-TPF2 Studio."""
 from __future__ import annotations
 
-import math
 import threading
 import time
 import uuid
@@ -13,6 +12,7 @@ import webview
 from . import bounds as B
 from . import convert as C
 from . import heightmap as H
+from . import heightmap_limits as HL
 from . import install as I
 from . import mods as M
 from . import osm_fetch as O
@@ -43,7 +43,7 @@ def _preview_data_url(path, max_px: int = 720) -> str:
 
 
 class StudioApi:
-    window = None
+    _window = None
 
     def __init__(self, repo_root: Path, ui_root: Path | None = None):
         self.repo = Path(repo_root)
@@ -286,6 +286,7 @@ class StudioApi:
                 "exe": self.state.get("exe"),
             },
             "map_sizes": B.MAP_SIZES,
+            "heightmap_max_pixels": HL.MAX_HEIGHTMAP_PIXELS,
             "target_game": self.state.get("target_game", "tpf2"),
             "game_name": P.GAME_CONFIG[self.state.get("target_game", "tpf2")]["label"],
             "supported_features": {
@@ -525,7 +526,7 @@ class StudioApi:
         return self._job(job, kind="tf3-convert", label="Convert mod metadata for TF3")
 
     def _dialog(self, folder=False, file_types=None):
-        if not self.window:
+        if not self._window:
             return None
         file_types = file_types or tuple()
         if hasattr(webview, "FileDialog"):
@@ -533,11 +534,11 @@ class StudioApi:
             kwargs = {"directory": str(self.work)}
             if not folder:
                 kwargs["file_types"] = file_types
-            return self.window.create_file_dialog(kind, **kwargs)
+            return self._window.create_file_dialog(kind, **kwargs)
         kind = webview.FOLDER_DIALOG if folder else webview.OPEN_DIALOG
         if folder:
-            return self.window.create_file_dialog(kind)
-        return self.window.create_file_dialog(kind, file_types=file_types)
+            return self._window.create_file_dialog(kind)
+        return self._window.create_file_dialog(kind, file_types=file_types)
 
     def download_osm(self, box: dict, mode: str = "filtered", force_refresh: bool = False) -> dict:
         dest = Path(self.state.get("osm_path") or (self.work / "map.osm"))
@@ -827,20 +828,13 @@ class StudioApi:
                     "error": "Enter the required TF3 heightmap pixel size. TPF2 presets are not assumed to match TF3.",
                 }
             try:
-                numeric_pixels = float(output_pixels)
-            except (TypeError, ValueError, OverflowError):
-                return {"ok": False, "error": "Enter a whole-number TF3 heightmap pixel size."}
-            if (
-                isinstance(output_pixels, bool)
-                or not math.isfinite(numeric_pixels)
-                or not numeric_pixels.is_integer()
-                or not 257 <= numeric_pixels <= 16385
-            ):
-                return {"ok": False, "error": "Heightmap pixels must be between 257 and 16385."}
-            pixels = int(numeric_pixels)
+                pixels = HL.validate_heightmap_pixels(output_pixels)
+            except ValueError as exc:
+                return {"ok": False, "error": str(exc)}
             copy_to_game = False
         else:
             pixels = B.MAP_SIZES.get(size_key, B.MAP_SIZES["huge"])["heightmap"]
+
         def job(progress, cancel=None):
             hm = ""
             if copy_to_game:

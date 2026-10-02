@@ -28,6 +28,7 @@ class ModDescriptor:
     pre_run_script: str | None = None
     run_script: str | None = None
     post_run_script: str | None = None
+    warnings: list[str] = field(default_factory=list)
 
     @property
     def target_mod_id(self) -> str:
@@ -358,6 +359,17 @@ def _normalize_mod_descriptor(raw: dict[str, Any]) -> ModDescriptor:
     mod_id = raw.get("modId") or raw.get("mod_id") or raw.get("id") or ""
     mod_id = str(mod_id).strip()
 
+    warnings: list[str] = []
+
+    def script_reference(keys: tuple[str, ...], label: str) -> str | None:
+        payload = next((raw.get(key) for key in keys if raw.get(key)), None)
+        if _is_inline_callback(payload):
+            warnings.append(
+                f"Unsupported inline {label} callback; no file reference was written to TF3 metadata."
+            )
+            return None
+        return _extract_file_reference(payload)
+
     descriptor = ModDescriptor(
         name=name,
         summary=summary,
@@ -373,20 +385,28 @@ def _normalize_mod_descriptor(raw: dict[str, Any]) -> ModDescriptor:
         options=raw.get("options"),
         severity_add=str(raw.get("severityAdd") or "None"),
         severity_remove=str(raw.get("severityRemove") or "None"),
-        pre_run_script=_extract_file_reference(raw.get("preRunScript") or raw.get("preRunFn") or raw.get("preScript")),
-        run_script=_extract_file_reference(raw.get("runScript") or raw.get("runFn") or raw.get("script")),
-        post_run_script=_extract_file_reference(raw.get("postRunScript") or raw.get("postRunFn") or raw.get("postScript")),
+        pre_run_script=script_reference(("preRunScript", "preRunFn", "preScript"), "pre-run"),
+        run_script=script_reference(("runScript", "runFn", "script"), "run"),
+        post_run_script=script_reference(("postRunScript", "postRunFn", "postScript"), "post-run"),
+        warnings=warnings,
     )
     return descriptor
+
+
+def _is_inline_callback(payload: Any) -> bool:
+    if isinstance(payload, dict):
+        payload = payload.get("fileName") or payload.get("filename")
+    return isinstance(payload, str) and bool(re.match(r"^\s*function(?:\s|\(|$)", payload))
 
 
 def _extract_file_reference(payload: Any) -> str | None:
     if payload is None:
         return None
     if isinstance(payload, str):
-        return payload
+        return None if _is_inline_callback(payload) else payload
     if isinstance(payload, dict):
-        return payload.get("fileName") or payload.get("filename")
+        reference = payload.get("fileName") or payload.get("filename")
+        return None if _is_inline_callback(reference) else reference
     return None
 
 
@@ -452,5 +472,6 @@ def convert_mod(source: str | Path, destination: str | Path, *, name: str | None
         "modId": descriptor.target_mod_id,
         "name": descriptor.name,
         "revision": descriptor.revision,
+        "warnings": descriptor.warnings,
     }
     return report
