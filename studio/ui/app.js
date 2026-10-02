@@ -607,6 +607,12 @@ async function main() {
     maxZoom: 19,
     attribution: "&copy; OpenStreetMap contributors",
   });
+  let osmTileErrorReported = false;
+  osmTiles.on("tileerror", () => {
+    if (osmTileErrorReported) return;
+    osmTileErrorReported = true;
+    log("OpenStreetMap map tiles could not be loaded. Check access to tile.openstreetmap.org or switch to Satellite; place search and OSM downloads use separate services.");
+  });
   const satTiles = L.tileLayer(
     "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
     { maxZoom: 19, attribution: "Esri, Maxar, Earthstar Geographics" },

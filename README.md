@@ -114,7 +114,7 @@ The desktop Studio starts with a tool selector:
 
 The converter can copy a selected mod folder to a new or empty output folder. It does not translate TF2 Lua scripts, models, textures, or other game resources into TF3-compatible content; treat its output as a metadata and file-layout starting point and verify the target game's requirements separately. The backend implementation is vendored in `studio/backend/tf3_converter_core.py` so the Studio executable can bundle it with the rest of the app.
 
-OSM downloads use a single official Overpass endpoint, a six-hour local cache for identical requests, and conservative per-host request pacing. The UI can force a fresh query. HTTP rate-limit responses and `Retry-After` delays are reported rather than bypassed by rotating endpoints. Downloaded OSM extracts include an attribution sidecar; geocoding results are cached for the app session.
+The map UI bundles Leaflet locally so loading the map does not depend on a third-party JavaScript CDN. OpenStreetMap tiles and data still require internet access; tile errors are reported in the Studio log, and Satellite imagery is available as a basemap alternative. OSM downloads use a single official Overpass endpoint, a six-hour local cache for identical requests, and conservative per-host request pacing. The UI can force a fresh query. HTTP rate-limit responses and `Retry-After` delays are reported rather than bypassed by rotating endpoints. Downloaded OSM extracts include an attribution sidecar; geocoding results are cached for the app session.
 
 
 ## Documentation/Tutorial

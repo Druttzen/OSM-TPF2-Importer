@@ -16,7 +16,7 @@ from pathlib import Path
 from .jobs import JobCancelled, raise_if_cancelled
 from .osm_access import wait_for_request_slot
 
-UA = "OSM-TPF2-Studio/1.3 (+https://github.com/Vacuum-Tube/OSM-TPF2-Importer; personal desktop app)"
+UA = "OSM-TPF2-Studio/1.3 (+https://github.com/Druttzen/OSM-TPF2-Importer)"
 OVERPASS_ENDPOINT = "https://overpass-api.de/api/interpreter"
 OSM_EXPORT = "https://api.openstreetmap.org/api/0.6/map?bbox={minlon},{minlat},{maxlon},{maxlat}"
 OSM_CACHE_TTL = 6 * 60 * 60
