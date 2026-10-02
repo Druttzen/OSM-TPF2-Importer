@@ -76,6 +76,7 @@ async function runConversion() {
       `Output: ${state.destination}`,
       "Generated mod.json and _metadata/modinfo.json.",
       "Folder contents were copied unchanged; TF3 compatibility still needs manual verification.",
+      ...(state.warnings || []).map((warning) => `Warning: ${warning}`),
     ].join("\n");
   } catch (error) {
     showError(String(error));

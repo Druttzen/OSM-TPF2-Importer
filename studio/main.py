@@ -39,7 +39,7 @@ def main() -> None:
         min_size=(1080, 720),
         background_color="#14110c",
     )
-    api.window = window
+    api._window = window
     try:
         webview.start(gui="edgechromium")
     except Exception:

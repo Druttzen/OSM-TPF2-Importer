@@ -23,6 +23,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
 from .jobs import JobCancelled, raise_if_cancelled
+from .heightmap_limits import validate_heightmap_pixels
 
 import numpy as np
 from PIL import Image
@@ -452,6 +453,7 @@ def generate_heightmap(
     progress=None,
     cancel=None,
 ) -> dict:
+    pixels = validate_heightmap_pixels(pixels)
     dest_dir.mkdir(parents=True, exist_ok=True)
     _PROGRESS_LOCAL.fn = progress
     _PROGRESS_LOCAL.cancel = cancel
@@ -486,6 +488,7 @@ def _generate_heightmap(
     ys = np.linspace(north_m, south_m, pixels)  # row 0 = north
     mx, my = np.meshgrid(xs, ys)
     lats, lons = to_ll(mx, my)
+    del mx, my
 
     zoom = choose_zoom(box)
     _progress(dest_dir, f"Terrarium zoom {zoom}")

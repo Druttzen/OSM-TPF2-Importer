@@ -126,10 +126,10 @@
             <label class="checkline"><input id="hmStrip" type="checkbox" checked /> Strip trees / buildings (DTM mix)</label>
             <label class="checkline" id="hmCopyLabel"><input id="hmCopy" type="checkbox" checked /> Copy into TPF2 heightmaps folder</label>
             <label id="hmPixelsLabel" hidden>TF3 output pixel size (verify against the selected TF3 map format)
-              <input id="hmPixels" type="number" min="257" max="16385" step="1" placeholder="Enter exact output pixels" />
+              <input id="hmPixels" type="number" min="257" max="6145" step="1" placeholder="Enter exact output pixels" />
             </label>
             <button type="button" id="btnHeightmap">Generate heightmap</button>
-            <p class="note" id="hmHint">Heightmap size is selected from the map preset. Verify the generated range in the map editor.</p>
+            <p class="note" id="hmHint">Heightmap size is selected from the map preset. Output is capped at 6,145 pixels per side: larger grids scale quadratically and a 16,385-pixel grid can exceed 8 GiB of peak temporary arrays. This cap includes the largest current TPF2 preset.</p>
             <img id="hmPreview" class="preview" alt="" hidden />
             <hr class="rule-soft" />
             <h2>Satellite overlay</h2>

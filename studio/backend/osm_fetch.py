@@ -1,12 +1,13 @@
 """Download OSM XML for a bounding box via Overpass, with OSM.org export fallback."""
 from __future__ import annotations
 
-import json
-import hashlib
 import email.utils
+import hashlib
+import json
 import re
 import shutil
 import time
+from collections.abc import Callable
 from functools import lru_cache
 import urllib.error
 import urllib.parse
@@ -14,7 +15,7 @@ import urllib.request
 from pathlib import Path
 
 from .jobs import JobCancelled, raise_if_cancelled
-from .osm_access import wait_for_request_slot
+from .osm_access import note_host_cooldown, wait_for_request_slot
 
 UA = "OSM-TPF2-Studio/1.3 (+https://github.com/Vacuum-Tube/OSM-TPF2-Importer; personal desktop app)"
 OVERPASS_ENDPOINT = "https://overpass-api.de/api/interpreter"
@@ -131,20 +132,45 @@ def _looks_like_osm(head: bytes) -> bool:
     return b"<osm" in sample or b"<?xml" in sample
 
 
+def _open_url(req: urllib.request.Request, timeout: int):
+    try:
+        return urllib.request.urlopen(req, timeout=timeout)
+    except urllib.error.HTTPError as exc:
+        if exc.code in {429, 503}:
+            note_host_cooldown(
+                req.full_url,
+                exc.headers.get("Retry-After") if exc.headers else None,
+            )
+        raise
+
+
 def _download_to(url: str, dest: Path, data: bytes | None, timeout: int, progress=None, cancel=None) -> int:
-    n = _download_raw(url, dest, data, timeout, progress=progress, cancel=cancel)
-    with dest.open("rb") as fh:
-        head = fh.read(800)
-    if not _looks_like_osm(head):
-        try:
-            dest.unlink(missing_ok=True)
-        except OSError:
-            pass
-        raise RuntimeError("Server did not return OSM XML")
-    return n
+    def validate_osm(path: Path) -> None:
+        with path.open("rb") as fh:
+            head = fh.read(800)
+        if not _looks_like_osm(head):
+            raise RuntimeError("Server did not return OSM XML")
+
+    return _download_raw(
+        url,
+        dest,
+        data,
+        timeout,
+        progress=progress,
+        cancel=cancel,
+        validate=validate_osm,
+    )
 
 
-def _download_raw(url: str, dest: Path, data: bytes | None, timeout: int, progress=None, cancel=None) -> int:
+def _download_raw(
+    url: str,
+    dest: Path,
+    data: bytes | None,
+    timeout: int,
+    progress=None,
+    cancel=None,
+    validate: Callable[[Path], None] | None = None,
+) -> int:
     headers = {"User-Agent": UA}
     if data:
         headers["Content-Type"] = "application/x-www-form-urlencoded"
@@ -159,7 +185,7 @@ def _download_raw(url: str, dest: Path, data: bytes | None, timeout: int, progre
     last_note = 0
     try:
         wait_for_request_slot(url, cancel)
-        with urllib.request.urlopen(req, timeout=timeout) as resp, tmp.open("wb") as out:
+        with _open_url(req, timeout=timeout) as resp, tmp.open("wb") as out:
             while True:
                 raise_if_cancelled(cancel)
                 chunk = resp.read(256 * 1024)
@@ -177,6 +203,8 @@ def _download_raw(url: str, dest: Path, data: bytes | None, timeout: int, progre
         sample = head.lstrip()[:80].lower()
         if sample.startswith(b"<!doctype") or sample.startswith(b"<html"):
             raise RuntimeError("Server returned an HTML page instead of the file")
+        if validate:
+            validate(tmp)
         tmp.replace(dest)
         return n
     except JobCancelled:
@@ -226,7 +254,7 @@ def _reverse_geocode_cached(lat: float, lon: float) -> dict:
     )
     req = urllib.request.Request(url, headers={"User-Agent": UA})
     wait_for_request_slot(url)
-    with urllib.request.urlopen(req, timeout=20) as resp:
+    with _open_url(req, timeout=20) as resp:
         row = json.loads(resp.read().decode("utf-8"))
     addr = row.get("address") or {}
     return {
@@ -278,7 +306,7 @@ def _http_error_message(exc: Exception) -> str:
             except ValueError:
                 try:
                     seconds = max(0, int(email.utils.parsedate_to_datetime(retry_after).timestamp() - time.time()))
-                except (TypeError, ValueError, OverflowError):
+                except (TypeError, ValueError, OverflowError, OSError):
                     seconds = None
             if seconds is not None:
                 return f"HTTP {exc.code}; service asks clients to wait {seconds} seconds before retrying."
@@ -419,7 +447,7 @@ def _geocode_cached(query: str, limit: int) -> list:
     req = urllib.request.Request(url, headers={"User-Agent": UA})
     try:
         wait_for_request_slot(url)
-        with urllib.request.urlopen(req, timeout=20) as resp:
+        with _open_url(req, timeout=20) as resp:
             rows = json.loads(resp.read().decode("utf-8"))
     except (urllib.error.HTTPError, urllib.error.URLError, TimeoutError, ValueError) as exc:
         raise RuntimeError(f"Nominatim place search failed: {_http_error_message(exc)}") from exc
@@ -472,16 +500,26 @@ def download_geofabrik_bz2(dest_dir: Path, box: dict | None = None, progress=Non
     def bytes_cb(n: int) -> None:
         note(f"{dest.name}: {n / 1e6:.1f} MB…", min(92, 6 + n / 40e6 * 80))
 
+    def validate_archive(path: Path) -> None:
+        with path.open("rb") as fh:
+            head = fh.read(8)
+        if head[:3] != b"BZh" and head[:2] != b"\x1f\x8b":
+            raise RuntimeError("Download did not look like .bz2/.gz")
+
     try:
-        nbytes = _download_raw(url, dest, None, timeout=7200, progress=bytes_cb, cancel=cancel)
+        nbytes = _download_raw(
+            url,
+            dest,
+            None,
+            timeout=7200,
+            progress=bytes_cb,
+            cancel=cancel,
+            validate=validate_archive,
+        )
     except JobCancelled:
         return {"ok": False, "cancelled": True, "error": "Cancelled", **gf}
     except (urllib.error.HTTPError, urllib.error.URLError, TimeoutError, RuntimeError, OSError) as exc:
         return {"ok": False, "error": str(exc), **gf}
-    with dest.open("rb") as fh:
-        head = fh.read(8)
-    if head[:3] != b"BZh" and head[:2] != b"\x1f\x8b":
-        return {"ok": False, "error": "Download did not look like .bz2/.gz", "path": str(dest), **gf}
     note(f"Saved {dest.name} ({nbytes / 1e6:.1f} MB)", 100)
     return {
         "ok": True,
